@@ -183,4 +183,4 @@ MIT License - Feel free to use, modify, and distribute.
 
 ---
 
-Made with ❤️ for creative coding enthusiasts
+
