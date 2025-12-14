@@ -1234,14 +1234,7 @@
       } else {
         // Android Chrome, Firefox, and other browsers
         // These browsers don't need explicit permission for sensors
-        
-        // Check if page is served over HTTPS (required for sensors)
-        if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-          alert("Motion sensors require HTTPS.\n\nPlease access this page via HTTPS.");
-          btn.textContent = "⚠ Need HTTPS";
-          btn.style.background = "linear-gradient(135deg, #ef4444, #dc2626)";
-          return;
-        }
+        // GitHub Pages always serves over HTTPS, so no need to check
         
         activateSensors();
         
