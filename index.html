@@ -1154,26 +1154,57 @@
     function enableSensors() {
       var btn = document.getElementById("enableSensors");
       
+      // Check if we're on a mobile device
+      var isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      
+      if (!isMobile) {
+        alert("Motion sensors are only available on mobile devices. Please open this page on your phone or tablet.");
+        return;
+      }
+      
+      // iOS 13+ requires permission request
       if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
         DeviceOrientationEvent.requestPermission().then(function(perm) {
+          if (perm === "granted") {
+            // Also request DeviceMotion permission on iOS
+            if (typeof DeviceMotionEvent.requestPermission === "function") {
+              return DeviceMotionEvent.requestPermission();
+            }
+            return "granted";
+          }
+          return perm;
+        }).then(function(perm) {
           if (perm === "granted") {
             state.sensors.enabled = true;
             window.addEventListener("deviceorientation", onOrientation);
             window.addEventListener("devicemotion", onMotion);
-            btn.textContent = "Sensors Enabled";
+            btn.textContent = "✓ Sensors Active";
             btn.disabled = true;
+            btn.style.background = "linear-gradient(135deg, #10b981, #059669)";
           } else {
-            alert("Permission denied");
+            alert("Permission denied. Please allow motion sensor access in your browser settings.");
           }
         }).catch(function(err) {
-          alert("Sensor error: " + err);
+          alert("Sensor error: " + err.message + "\n\nMake sure you're using HTTPS and have granted permission.");
         });
-      } else {
+      } else if (window.DeviceOrientationEvent || window.DeviceMotionEvent) {
+        // Android and other browsers - no permission needed
         state.sensors.enabled = true;
         window.addEventListener("deviceorientation", onOrientation);
         window.addEventListener("devicemotion", onMotion);
-        btn.textContent = "Sensors Enabled";
+        btn.textContent = "✓ Sensors Active";
         btn.disabled = true;
+        btn.style.background = "linear-gradient(135deg, #10b981, #059669)";
+        
+        // Test if sensors are actually working
+        setTimeout(function() {
+          if (!state.sensors.tilt.gamma && !state.sensors.tilt.beta) {
+            btn.textContent = "⚠ Sensors May Not Work";
+            btn.style.background = "linear-gradient(135deg, #f59e0b, #d97706)";
+          }
+        }, 2000);
+      } else {
+        alert("Motion sensors are not supported on this device or browser.");
       }
     }
 
@@ -1474,9 +1505,8 @@
     });
 
     // === START ===
-    if (!window.DeviceOrientationEvent && !window.DeviceMotionEvent) {
-      document.getElementById("enableSensors").style.display = "none";
-    }
+    // Always show sensor button - let users try even if detection fails
+    // The enableSensors function will show appropriate messages
     renderPresetList();
     hud.textContent = "Ready";
     requestAnimationFrame(animate);
