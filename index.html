@@ -1159,22 +1159,53 @@
                      ('ontouchstart' in window) ||
                      (navigator.maxTouchPoints > 0);
       
+      var isAndroid = /Android/i.test(navigator.userAgent);
+      var isChrome = /Chrome/i.test(navigator.userAgent);
+      
+      // Track if we received any sensor data
+      var receivedData = false;
+      
       // Function to activate sensors after permission
       function activateSensors() {
         state.sensors.enabled = true;
-        window.addEventListener("deviceorientation", onOrientation, true);
-        window.addEventListener("devicemotion", onMotion, true);
+        
+        // Orientation handler with data tracking
+        function handleOrientation(e) {
+          if (e.gamma !== null || e.beta !== null) {
+            receivedData = true;
+            btn.textContent = "✓ Sensors Working";
+            btn.style.background = "linear-gradient(135deg, #10b981, #059669)";
+          }
+          onOrientation(e);
+        }
+        
+        function handleMotion(e) {
+          if (e.accelerationIncludingGravity && 
+              (e.accelerationIncludingGravity.x !== null || e.accelerationIncludingGravity.y !== null)) {
+            receivedData = true;
+          }
+          onMotion(e);
+        }
+        
+        window.addEventListener("deviceorientation", handleOrientation, true);
+        window.addEventListener("devicemotion", handleMotion, true);
+        
         btn.textContent = "✓ Sensors Active";
         btn.disabled = true;
         btn.style.background = "linear-gradient(135deg, #10b981, #059669)";
         
-        // Test if sensors are actually providing data
-        var testTimeout = setTimeout(function() {
-          if (state.sensors.tilt.gamma === 0 && state.sensors.tilt.beta === 0) {
-            btn.textContent = "✓ Listening...";
-            btn.style.background = "linear-gradient(135deg, #3b82f6, #1d4ed8)";
+        // Check after delay if we're getting data
+        setTimeout(function() {
+          if (!receivedData) {
+            btn.textContent = "⚠ No Data";
+            btn.style.background = "linear-gradient(135deg, #f59e0b, #d97706)";
+            btn.disabled = false;
+            
+            if (isAndroid && isChrome) {
+              alert("Sensors enabled but no data received.\n\nFor Chrome on Android:\n1. Make sure you're using HTTPS (GitHub Pages is HTTPS)\n2. Try rotating your phone\n3. Some devices may have sensors disabled\n\nTip: Make sure 'Device Tilt' or 'Device Acceleration' is selected in the dropdown above.");
+            }
           }
-        }, 1500);
+        }, 3000);
       }
       
       // iOS 13+ requires explicit permission request
@@ -1201,17 +1232,23 @@
           alert("Could not access sensors.\n\nMake sure:\n• You're using HTTPS\n• Safari Settings > Motion & Orientation Access is ON\n\nError: " + (err.message || err));
         });
       } else {
-        // Android, Chrome, Firefox, and other browsers
-        // These browsers don't need permission, just try to use the sensors
+        // Android Chrome, Firefox, and other browsers
+        // These browsers don't need explicit permission for sensors
+        
+        // Check if page is served over HTTPS (required for sensors)
+        if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+          alert("Motion sensors require HTTPS.\n\nPlease access this page via HTTPS.");
+          btn.textContent = "⚠ Need HTTPS";
+          btn.style.background = "linear-gradient(135deg, #ef4444, #dc2626)";
+          return;
+        }
+        
         activateSensors();
         
-        // Show a message that sensors are being attempted
-        btn.textContent = "✓ Sensors Active";
-        
         if (!isMobile) {
-          // On desktop, show a note
+          // On desktop, sensors won't work
           setTimeout(function() {
-            btn.textContent = "Desktop Mode";
+            btn.textContent = "Desktop - No Sensors";
             btn.style.background = "linear-gradient(135deg, #6b7280, #4b5563)";
           }, 500);
         }
