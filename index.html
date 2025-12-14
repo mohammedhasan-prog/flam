@@ -1153,182 +1153,159 @@
 
     function enableSensors() {
       var btn = document.getElementById("enableSensors");
-      
-      // Check if we're on a mobile device or tablet
-      var isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
-                     ('ontouchstart' in window) ||
-                     (navigator.maxTouchPoints > 0);
-      
       var receivedData = false;
+      var debugInfo = [];
       
-      function markWorking() {
+      function log(msg) {
+        debugInfo.push(msg);
+        console.log("[Sensor]", msg);
+      }
+      
+      function markWorking(source) {
         if (!receivedData) {
           receivedData = true;
+          log("Data received from: " + source);
           btn.textContent = "✓ Sensors Working!";
           btn.style.background = "linear-gradient(135deg, #10b981, #059669)";
         }
       }
       
-      // Try Modern Generic Sensor API first (Chrome 67+)
-      function tryGenericSensors() {
-        var hasGenericSensor = false;
-        
-        // Try Gyroscope
-        if ('Gyroscope' in window) {
-          try {
-            var gyro = new Gyroscope({ frequency: 60 });
-            gyro.addEventListener('reading', function() {
-              markWorking();
-              // Convert gyro data to orientation-like values
-              var gamma = gyro.y * 10; // Scale for sensitivity
-              var beta = gyro.x * 10;
-              if (state.sensors.enabled && state.mode === "tilt") {
-                var b = SCENE_SIZE * 0.6;
-                state.p2Physics.target.x = Math.max(-b, Math.min(b, gamma * SENSOR.tilt));
-                state.p2Physics.target.y = Math.max(-10, Math.min(50, 30 - beta * SENSOR.tilt * 0.5));
-              }
-            });
-            gyro.addEventListener('error', function(e) {
-              console.log('Gyroscope error:', e.error.message);
-            });
-            gyro.start();
-            hasGenericSensor = true;
-          } catch (e) {
-            console.log('Gyroscope not available:', e);
-          }
-        }
-        
-        // Try Accelerometer
-        if ('Accelerometer' in window) {
-          try {
-            var accel = new Accelerometer({ frequency: 60 });
-            accel.addEventListener('reading', function() {
-              markWorking();
-              if (state.sensors.enabled && state.mode === "accel") {
-                var b = SCENE_SIZE * 0.6;
-                state.p2Physics.target.x = Math.max(-b, Math.min(b, accel.x * SENSOR.accel * 0.5));
-                state.p2Physics.target.y = Math.max(-10, Math.min(50, 30 + accel.y * SENSOR.accel * 0.3));
-              }
-            });
-            accel.addEventListener('error', function(e) {
-              console.log('Accelerometer error:', e.error.message);
-            });
-            accel.start();
-            hasGenericSensor = true;
-          } catch (e) {
-            console.log('Accelerometer not available:', e);
-          }
-        }
-        
-        // Try RelativeOrientationSensor
-        if ('RelativeOrientationSensor' in window) {
-          try {
-            var orientation = new RelativeOrientationSensor({ frequency: 60 });
-            orientation.addEventListener('reading', function() {
-              markWorking();
-              if (state.sensors.enabled && state.mode === "tilt") {
-                // Quaternion to euler (simplified)
-                var q = orientation.quaternion;
-                var gamma = Math.atan2(2*(q[0]*q[1] + q[2]*q[3]), 1 - 2*(q[1]*q[1] + q[2]*q[2])) * (180/Math.PI);
-                var beta = Math.asin(2*(q[0]*q[2] - q[3]*q[1])) * (180/Math.PI);
-                var b = SCENE_SIZE * 0.6;
-                state.p2Physics.target.x = Math.max(-b, Math.min(b, gamma * SENSOR.tilt * 0.5));
-                state.p2Physics.target.y = Math.max(-10, Math.min(50, 30 - beta * SENSOR.tilt * 0.3));
-              }
-            });
-            orientation.addEventListener('error', function(e) {
-              console.log('OrientationSensor error:', e.error.message);
-            });
-            orientation.start();
-            hasGenericSensor = true;
-          } catch (e) {
-            console.log('OrientationSensor not available:', e);
-          }
-        }
-        
-        return hasGenericSensor;
+      function showDebug() {
+        alert("Sensor Debug Info:\n\n" + debugInfo.join("\n") + "\n\nTry using Touch/Mouse mode instead!");
       }
       
-      // Legacy DeviceOrientation/DeviceMotion API
-      function tryLegacySensors() {
-        function handleOrientation(e) {
-          if (e.gamma !== null || e.beta !== null) {
-            markWorking();
-          }
-          onOrientation(e);
+      // Legacy event handlers
+      function handleOrientation(e) {
+        if (e.alpha !== null || e.beta !== null || e.gamma !== null) {
+          markWorking("deviceorientation");
         }
-        
-        function handleMotion(e) {
-          if (e.accelerationIncludingGravity && 
-              (e.accelerationIncludingGravity.x !== null || e.accelerationIncludingGravity.y !== null)) {
-            markWorking();
-          }
-          onMotion(e);
+        onOrientation(e);
+      }
+      
+      function handleMotion(e) {
+        var acc = e.accelerationIncludingGravity || e.acceleration;
+        if (acc && (acc.x !== null || acc.y !== null || acc.z !== null)) {
+          markWorking("devicemotion");
         }
+        onMotion(e);
+      }
+      
+      // Start listening
+      function startListening() {
+        state.sensors.enabled = true;
+        log("Adding event listeners...");
         
         window.addEventListener("deviceorientation", handleOrientation, true);
+        window.addEventListener("deviceorientationabsolute", handleOrientation, true);
         window.addEventListener("devicemotion", handleMotion, true);
+        
+        log("Listeners added, waiting for data...");
+        btn.textContent = "📱 Tilt your phone!";
+        btn.style.background = "linear-gradient(135deg, #3b82f6, #1d4ed8)";
       }
       
-      // Main activation
-      state.sensors.enabled = true;
-      btn.textContent = "⏳ Activating...";
-      btn.style.background = "linear-gradient(135deg, #3b82f6, #1d4ed8)";
-      btn.disabled = true;
-      
-      // iOS 13+ requires explicit permission request
-      if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
-        Promise.all([
-          DeviceOrientationEvent.requestPermission(),
-          typeof DeviceMotionEvent.requestPermission === "function" ? DeviceMotionEvent.requestPermission() : Promise.resolve("granted")
-        ]).then(function(results) {
-          if (results[0] === "granted") {
-            tryLegacySensors();
-            setTimeout(function() {
-              if (!receivedData) {
-                btn.textContent = "⚠ Tilt phone to test";
-                btn.style.background = "linear-gradient(135deg, #f59e0b, #d97706)";
-              }
-            }, 2000);
-          } else {
-            btn.textContent = "Permission Denied";
-            btn.style.background = "linear-gradient(135deg, #ef4444, #dc2626)";
-            btn.disabled = false;
-            state.sensors.enabled = false;
-          }
-        }).catch(function(err) {
-          btn.textContent = "Error - Try Again";
-          btn.style.background = "linear-gradient(135deg, #ef4444, #dc2626)";
-          btn.disabled = false;
-          state.sensors.enabled = false;
-        });
-      } else {
-        // Android/Chrome - try both APIs
-        var hasGeneric = tryGenericSensors();
-        tryLegacySensors();
+      // Request permission using Permissions API (Chrome 86+)
+      function requestPermissions() {
+        log("Trying Permissions API...");
         
-        // Check for data after a delay
-        setTimeout(function() {
-          if (!receivedData) {
-            btn.textContent = "📱 Tilt phone now!";
-            btn.style.background = "linear-gradient(135deg, #f59e0b, #d97706)";
-            
-            // Second check
-            setTimeout(function() {
-              if (!receivedData) {
-                btn.textContent = "⚠ No sensor data";
-                btn.disabled = false;
-                alert("No sensor data received.\n\nTry these steps:\n\n1. Make sure 'Device Tilt' is selected above\n2. Physically tilt/rotate your phone\n3. Your phone may not have gyroscope\n\nAlternative: Use 'Touch/Mouse' mode to drag the green point!");
-              }
-            }, 4000);
-          }
-        }, 2000);
+        var permissions = [];
         
-        if (!isMobile) {
-          btn.textContent = "Desktop - Use Mouse";
-          btn.style.background = "linear-gradient(135deg, #6b7280, #4b5563)";
+        if (navigator.permissions) {
+          // Try to query accelerometer permission
+          navigator.permissions.query({ name: 'accelerometer' })
+            .then(function(result) {
+              log("Accelerometer permission: " + result.state);
+              if (result.state === 'granted' || result.state === 'prompt') {
+                startListening();
+              }
+            })
+            .catch(function(e) {
+              log("Permissions API failed: " + e.message);
+              // Fallback - just start listening
+              startListening();
+            });
+        } else {
+          log("No Permissions API, starting directly");
+          startListening();
         }
       }
+      
+      // Main flow
+      btn.disabled = true;
+      log("User agent: " + navigator.userAgent.substring(0, 50) + "...");
+      log("Protocol: " + location.protocol);
+      
+      // iOS requires explicit permission
+      if (typeof DeviceOrientationEvent !== "undefined" && 
+          typeof DeviceOrientationEvent.requestPermission === "function") {
+        log("iOS detected, requesting permission...");
+        
+        DeviceOrientationEvent.requestPermission()
+          .then(function(response) {
+            log("iOS permission: " + response);
+            if (response === "granted") {
+              if (typeof DeviceMotionEvent.requestPermission === "function") {
+                return DeviceMotionEvent.requestPermission();
+              }
+              return "granted";
+            }
+            return response;
+          })
+          .then(function(response) {
+            if (response === "granted") {
+              startListening();
+            } else {
+              btn.textContent = "Permission Denied";
+              btn.style.background = "linear-gradient(135deg, #ef4444, #dc2626)";
+              btn.disabled = false;
+            }
+          })
+          .catch(function(err) {
+            log("iOS error: " + err);
+            btn.textContent = "Error - Tap to retry";
+            btn.disabled = false;
+          });
+      } else {
+        // Android / other browsers
+        log("Android/Other browser detected");
+        
+        // Check if deviceorientation is available
+        if ('DeviceOrientationEvent' in window) {
+          log("DeviceOrientationEvent available");
+        } else {
+          log("DeviceOrientationEvent NOT available");
+        }
+        
+        if ('DeviceMotionEvent' in window) {
+          log("DeviceMotionEvent available");
+        } else {
+          log("DeviceMotionEvent NOT available");
+        }
+        
+        // For Samsung/Android Chrome, try requesting permissions first
+        requestPermissions();
+      }
+      
+      // Check for data after delays
+      setTimeout(function() {
+        if (!receivedData) {
+          log("Still no data after 3s");
+          btn.textContent = "🔄 Keep tilting...";
+        }
+      }, 3000);
+      
+      setTimeout(function() {
+        if (!receivedData) {
+          log("No data after 6s - showing debug");
+          btn.textContent = "⚠ Tap for info";
+          btn.style.background = "linear-gradient(135deg, #f59e0b, #d97706)";
+          btn.disabled = false;
+          btn.onclick = function() {
+            showDebug();
+            btn.onclick = enableSensors; // Reset for retry
+          };
+        }
+      }, 6000);
     }
 
     // === EXPORT IMAGE ===
