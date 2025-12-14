@@ -1159,22 +1159,101 @@
                      ('ontouchstart' in window) ||
                      (navigator.maxTouchPoints > 0);
       
-      var isAndroid = /Android/i.test(navigator.userAgent);
-      var isChrome = /Chrome/i.test(navigator.userAgent);
-      
-      // Track if we received any sensor data
       var receivedData = false;
       
-      // Function to activate sensors after permission
-      function activateSensors() {
-        state.sensors.enabled = true;
+      function markWorking() {
+        if (!receivedData) {
+          receivedData = true;
+          btn.textContent = "✓ Sensors Working!";
+          btn.style.background = "linear-gradient(135deg, #10b981, #059669)";
+        }
+      }
+      
+      // Try Modern Generic Sensor API first (Chrome 67+)
+      function tryGenericSensors() {
+        var hasGenericSensor = false;
         
-        // Orientation handler with data tracking
+        // Try Gyroscope
+        if ('Gyroscope' in window) {
+          try {
+            var gyro = new Gyroscope({ frequency: 60 });
+            gyro.addEventListener('reading', function() {
+              markWorking();
+              // Convert gyro data to orientation-like values
+              var gamma = gyro.y * 10; // Scale for sensitivity
+              var beta = gyro.x * 10;
+              if (state.sensors.enabled && state.mode === "tilt") {
+                var b = SCENE_SIZE * 0.6;
+                state.p2Physics.target.x = Math.max(-b, Math.min(b, gamma * SENSOR.tilt));
+                state.p2Physics.target.y = Math.max(-10, Math.min(50, 30 - beta * SENSOR.tilt * 0.5));
+              }
+            });
+            gyro.addEventListener('error', function(e) {
+              console.log('Gyroscope error:', e.error.message);
+            });
+            gyro.start();
+            hasGenericSensor = true;
+          } catch (e) {
+            console.log('Gyroscope not available:', e);
+          }
+        }
+        
+        // Try Accelerometer
+        if ('Accelerometer' in window) {
+          try {
+            var accel = new Accelerometer({ frequency: 60 });
+            accel.addEventListener('reading', function() {
+              markWorking();
+              if (state.sensors.enabled && state.mode === "accel") {
+                var b = SCENE_SIZE * 0.6;
+                state.p2Physics.target.x = Math.max(-b, Math.min(b, accel.x * SENSOR.accel * 0.5));
+                state.p2Physics.target.y = Math.max(-10, Math.min(50, 30 + accel.y * SENSOR.accel * 0.3));
+              }
+            });
+            accel.addEventListener('error', function(e) {
+              console.log('Accelerometer error:', e.error.message);
+            });
+            accel.start();
+            hasGenericSensor = true;
+          } catch (e) {
+            console.log('Accelerometer not available:', e);
+          }
+        }
+        
+        // Try RelativeOrientationSensor
+        if ('RelativeOrientationSensor' in window) {
+          try {
+            var orientation = new RelativeOrientationSensor({ frequency: 60 });
+            orientation.addEventListener('reading', function() {
+              markWorking();
+              if (state.sensors.enabled && state.mode === "tilt") {
+                // Quaternion to euler (simplified)
+                var q = orientation.quaternion;
+                var gamma = Math.atan2(2*(q[0]*q[1] + q[2]*q[3]), 1 - 2*(q[1]*q[1] + q[2]*q[2])) * (180/Math.PI);
+                var beta = Math.asin(2*(q[0]*q[2] - q[3]*q[1])) * (180/Math.PI);
+                var b = SCENE_SIZE * 0.6;
+                state.p2Physics.target.x = Math.max(-b, Math.min(b, gamma * SENSOR.tilt * 0.5));
+                state.p2Physics.target.y = Math.max(-10, Math.min(50, 30 - beta * SENSOR.tilt * 0.3));
+              }
+            });
+            orientation.addEventListener('error', function(e) {
+              console.log('OrientationSensor error:', e.error.message);
+            });
+            orientation.start();
+            hasGenericSensor = true;
+          } catch (e) {
+            console.log('OrientationSensor not available:', e);
+          }
+        }
+        
+        return hasGenericSensor;
+      }
+      
+      // Legacy DeviceOrientation/DeviceMotion API
+      function tryLegacySensors() {
         function handleOrientation(e) {
           if (e.gamma !== null || e.beta !== null) {
-            receivedData = true;
-            btn.textContent = "✓ Sensors Working";
-            btn.style.background = "linear-gradient(135deg, #10b981, #059669)";
+            markWorking();
           }
           onOrientation(e);
         }
@@ -1182,68 +1261,72 @@
         function handleMotion(e) {
           if (e.accelerationIncludingGravity && 
               (e.accelerationIncludingGravity.x !== null || e.accelerationIncludingGravity.y !== null)) {
-            receivedData = true;
+            markWorking();
           }
           onMotion(e);
         }
         
         window.addEventListener("deviceorientation", handleOrientation, true);
         window.addEventListener("devicemotion", handleMotion, true);
-        
-        btn.textContent = "✓ Sensors Active";
-        btn.disabled = true;
-        btn.style.background = "linear-gradient(135deg, #10b981, #059669)";
-        
-        // Check after delay if we're getting data
-        setTimeout(function() {
-          if (!receivedData) {
-            btn.textContent = "⚠ No Data";
-            btn.style.background = "linear-gradient(135deg, #f59e0b, #d97706)";
-            btn.disabled = false;
-            
-            if (isAndroid && isChrome) {
-              alert("Sensors enabled but no data received.\n\nFor Chrome on Android:\n1. Make sure you're using HTTPS (GitHub Pages is HTTPS)\n2. Try rotating your phone\n3. Some devices may have sensors disabled\n\nTip: Make sure 'Device Tilt' or 'Device Acceleration' is selected in the dropdown above.");
-            }
-          }
-        }, 3000);
       }
+      
+      // Main activation
+      state.sensors.enabled = true;
+      btn.textContent = "⏳ Activating...";
+      btn.style.background = "linear-gradient(135deg, #3b82f6, #1d4ed8)";
+      btn.disabled = true;
       
       // iOS 13+ requires explicit permission request
       if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
-        // iOS path
-        DeviceOrientationEvent.requestPermission().then(function(orientationPerm) {
-          if (orientationPerm === "granted") {
-            // Also request DeviceMotion permission on iOS
-            if (typeof DeviceMotionEvent !== "undefined" && typeof DeviceMotionEvent.requestPermission === "function") {
-              return DeviceMotionEvent.requestPermission().then(function(motionPerm) {
-                return motionPerm;
-              });
-            }
-            return "granted";
-          }
-          return orientationPerm;
-        }).then(function(perm) {
-          if (perm === "granted") {
-            activateSensors();
+        Promise.all([
+          DeviceOrientationEvent.requestPermission(),
+          typeof DeviceMotionEvent.requestPermission === "function" ? DeviceMotionEvent.requestPermission() : Promise.resolve("granted")
+        ]).then(function(results) {
+          if (results[0] === "granted") {
+            tryLegacySensors();
+            setTimeout(function() {
+              if (!receivedData) {
+                btn.textContent = "⚠ Tilt phone to test";
+                btn.style.background = "linear-gradient(135deg, #f59e0b, #d97706)";
+              }
+            }, 2000);
           } else {
-            alert("Permission denied.\n\nTo enable sensors:\n1. Go to Settings > Safari\n2. Enable 'Motion & Orientation Access'\n3. Reload this page");
+            btn.textContent = "Permission Denied";
+            btn.style.background = "linear-gradient(135deg, #ef4444, #dc2626)";
+            btn.disabled = false;
+            state.sensors.enabled = false;
           }
         }).catch(function(err) {
-          alert("Could not access sensors.\n\nMake sure:\n• You're using HTTPS\n• Safari Settings > Motion & Orientation Access is ON\n\nError: " + (err.message || err));
+          btn.textContent = "Error - Try Again";
+          btn.style.background = "linear-gradient(135deg, #ef4444, #dc2626)";
+          btn.disabled = false;
+          state.sensors.enabled = false;
         });
       } else {
-        // Android Chrome, Firefox, and other browsers
-        // These browsers don't need explicit permission for sensors
-        // GitHub Pages always serves over HTTPS, so no need to check
+        // Android/Chrome - try both APIs
+        var hasGeneric = tryGenericSensors();
+        tryLegacySensors();
         
-        activateSensors();
+        // Check for data after a delay
+        setTimeout(function() {
+          if (!receivedData) {
+            btn.textContent = "📱 Tilt phone now!";
+            btn.style.background = "linear-gradient(135deg, #f59e0b, #d97706)";
+            
+            // Second check
+            setTimeout(function() {
+              if (!receivedData) {
+                btn.textContent = "⚠ No sensor data";
+                btn.disabled = false;
+                alert("No sensor data received.\n\nTry these steps:\n\n1. Make sure 'Device Tilt' is selected above\n2. Physically tilt/rotate your phone\n3. Your phone may not have gyroscope\n\nAlternative: Use 'Touch/Mouse' mode to drag the green point!");
+              }
+            }, 4000);
+          }
+        }, 2000);
         
         if (!isMobile) {
-          // On desktop, sensors won't work
-          setTimeout(function() {
-            btn.textContent = "Desktop - No Sensors";
-            btn.style.background = "linear-gradient(135deg, #6b7280, #4b5563)";
-          }, 500);
+          btn.textContent = "Desktop - Use Mouse";
+          btn.style.background = "linear-gradient(135deg, #6b7280, #4b5563)";
         }
       }
     }
