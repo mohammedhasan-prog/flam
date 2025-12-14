@@ -1154,57 +1154,67 @@
     function enableSensors() {
       var btn = document.getElementById("enableSensors");
       
-      // Check if we're on a mobile device
-      var isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      // Check if we're on a mobile device or tablet
+      var isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+                     ('ontouchstart' in window) ||
+                     (navigator.maxTouchPoints > 0);
       
-      if (!isMobile) {
-        alert("Motion sensors are only available on mobile devices. Please open this page on your phone or tablet.");
-        return;
-      }
-      
-      // iOS 13+ requires permission request
-      if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
-        DeviceOrientationEvent.requestPermission().then(function(perm) {
-          if (perm === "granted") {
-            // Also request DeviceMotion permission on iOS
-            if (typeof DeviceMotionEvent.requestPermission === "function") {
-              return DeviceMotionEvent.requestPermission();
-            }
-            return "granted";
-          }
-          return perm;
-        }).then(function(perm) {
-          if (perm === "granted") {
-            state.sensors.enabled = true;
-            window.addEventListener("deviceorientation", onOrientation);
-            window.addEventListener("devicemotion", onMotion);
-            btn.textContent = "✓ Sensors Active";
-            btn.disabled = true;
-            btn.style.background = "linear-gradient(135deg, #10b981, #059669)";
-          } else {
-            alert("Permission denied. Please allow motion sensor access in your browser settings.");
-          }
-        }).catch(function(err) {
-          alert("Sensor error: " + err.message + "\n\nMake sure you're using HTTPS and have granted permission.");
-        });
-      } else if (window.DeviceOrientationEvent || window.DeviceMotionEvent) {
-        // Android and other browsers - no permission needed
+      // Function to activate sensors after permission
+      function activateSensors() {
         state.sensors.enabled = true;
-        window.addEventListener("deviceorientation", onOrientation);
-        window.addEventListener("devicemotion", onMotion);
+        window.addEventListener("deviceorientation", onOrientation, true);
+        window.addEventListener("devicemotion", onMotion, true);
         btn.textContent = "✓ Sensors Active";
         btn.disabled = true;
         btn.style.background = "linear-gradient(135deg, #10b981, #059669)";
         
-        // Test if sensors are actually working
-        setTimeout(function() {
-          if (!state.sensors.tilt.gamma && !state.sensors.tilt.beta) {
-            btn.textContent = "⚠ Sensors May Not Work";
-            btn.style.background = "linear-gradient(135deg, #f59e0b, #d97706)";
+        // Test if sensors are actually providing data
+        var testTimeout = setTimeout(function() {
+          if (state.sensors.tilt.gamma === 0 && state.sensors.tilt.beta === 0) {
+            btn.textContent = "✓ Listening...";
+            btn.style.background = "linear-gradient(135deg, #3b82f6, #1d4ed8)";
           }
-        }, 2000);
+        }, 1500);
+      }
+      
+      // iOS 13+ requires explicit permission request
+      if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+        // iOS path
+        DeviceOrientationEvent.requestPermission().then(function(orientationPerm) {
+          if (orientationPerm === "granted") {
+            // Also request DeviceMotion permission on iOS
+            if (typeof DeviceMotionEvent !== "undefined" && typeof DeviceMotionEvent.requestPermission === "function") {
+              return DeviceMotionEvent.requestPermission().then(function(motionPerm) {
+                return motionPerm;
+              });
+            }
+            return "granted";
+          }
+          return orientationPerm;
+        }).then(function(perm) {
+          if (perm === "granted") {
+            activateSensors();
+          } else {
+            alert("Permission denied.\n\nTo enable sensors:\n1. Go to Settings > Safari\n2. Enable 'Motion & Orientation Access'\n3. Reload this page");
+          }
+        }).catch(function(err) {
+          alert("Could not access sensors.\n\nMake sure:\n• You're using HTTPS\n• Safari Settings > Motion & Orientation Access is ON\n\nError: " + (err.message || err));
+        });
       } else {
-        alert("Motion sensors are not supported on this device or browser.");
+        // Android, Chrome, Firefox, and other browsers
+        // These browsers don't need permission, just try to use the sensors
+        activateSensors();
+        
+        // Show a message that sensors are being attempted
+        btn.textContent = "✓ Sensors Active";
+        
+        if (!isMobile) {
+          // On desktop, show a note
+          setTimeout(function() {
+            btn.textContent = "Desktop Mode";
+            btn.style.background = "linear-gradient(135deg, #6b7280, #4b5563)";
+          }, 500);
+        }
       }
     }
 
